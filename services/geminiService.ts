@@ -69,16 +69,26 @@ export const correctMenuText = async (text: string): Promise<Correction[]> => {
 
   } catch (error) {
     console.error("Erro ao chamar a API Gemini:", error);
+    
     if (error instanceof Error) {
-        // Fornece mensagens de erro mais específicas e úteis ao usuário.
-        if (error.message.includes('API key not valid')) {
-             throw new Error("Sua chave da API não é válida. Por favor, verifique a configuração.");
+        // As mensagens de erro do SDK da Gemini geralmente começam com "[GoogleGenerativeAI Error]:".
+        // Vamos extrair a mensagem principal para torná-la mais amigável.
+        const message = error.message.replace(/\[.*?\]\s*:/, '').trim();
+
+        if (message.includes('API key not valid')) {
+          throw new Error("Chave da API inválida. Verifique se sua chave está configurada corretamente.");
         }
-        if (error.message.includes('fetch failed')) {
-            throw new Error("Erro de rede. Verifique sua conexão com a internet e tente novamente.")
+        if (message.includes('400 Bad Request')) {
+          throw new Error(`Sua solicitação foi rejeitada pela IA. Isso pode ser devido ao conteúdo do PDF ou a um problema temporário. Detalhes: ${message}`);
         }
-        throw new Error(`Ocorreu um erro ao comunicar com a IA. Tente novamente mais tarde.`);
+         if (message.match(/50\d/)) { // Erros 500, 503, etc.
+          throw new Error("O serviço da IA está sobrecarregado ou indisponível no momento. Por favor, tente novamente em alguns minutos.");
+        }
+
+        // Para outros erros, mostramos a mensagem limpa.
+        throw new Error(`Erro de comunicação com a IA: ${message}`);
     }
+    
     throw new Error("Ocorreu um erro desconhecido ao analisar o cardápio.");
   }
 };
