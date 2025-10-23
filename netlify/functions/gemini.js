@@ -1,8 +1,7 @@
 // netlify/functions/gemini.js
 
-// This function acts as a robust proxy to the Gemini API.
-// It validates and parses the AI's JSON response on the server
-// before sending clean, structured data to the client.
+// This function acts as a simple proxy to the Gemini API.
+// It returns the raw text response from the AI inside a JSON object: { "text": "..." }
 exports.handler = async (event) => {
   if (event.httpMethod !== 'POST') {
     return { 
@@ -46,60 +45,39 @@ exports.handler = async (event) => {
       }
     );
     
+    const data = await apiResponse.json();
+
     if (!apiResponse.ok) {
-        const errorData = await apiResponse.json();
-        console.error("Gemini API Error:", errorData);
+        console.error("Gemini API Error:", data);
         return {
             statusCode: apiResponse.status,
-            body: JSON.stringify({ error: errorData.error?.message || `Erro na API Gemini: ${apiResponse.statusText}` })
+            body: JSON.stringify({ error: data.error?.message || `Erro na API Gemini: ${apiResponse.statusText}` })
         };
     }
 
-    const data = await apiResponse.json();
-    const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text;
-    
-    if (!rawText || rawText.trim() === '') {
-        if (data.promptFeedback?.blockReason) {
-            console.warn("Prompt blocked:", data.promptFeedback.blockReason);
-            return {
-                statusCode: 400,
-                body: JSON.stringify({ error: `A solicitação foi bloqueada por motivos de segurança: ${data.promptFeedback.blockReason}` })
-            };
-        }
-        // If no text and not blocked, assume no corrections. Send back a valid, stringified empty array.
+    if (data.promptFeedback?.blockReason) {
+        console.warn("Prompt blocked:", data.promptFeedback.blockReason);
         return {
-            statusCode: 200,
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify([]) 
+            statusCode: 400,
+            body: JSON.stringify({ error: `A solicitação foi bloqueada por motivos de segurança: ${data.promptFeedback.blockReason}` })
         };
     }
-    
-    try {
-        // Clean and parse the JSON *on the server*. This is the critical step.
-        const cleanedJsonText = rawText.trim().replace(/^```json\s*/, '').replace(/\s*```$/, '');
-        const corrections = JSON.parse(cleanedJsonText);
-        
-        // If parsing succeeds, send the structured data back.
-        return {
-            statusCode: 200,
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(corrections)
-        };
-    } catch (parseError) {
-        // If JSON parsing fails here, we know the AI response was invalid.
-        console.error("Falha ao analisar a resposta da Gemini como JSON. Resposta bruta:", rawText);
-        return {
-            statusCode: 500,
-            // Return a helpful error message to the client.
-            body: JSON.stringify({ error: "A resposta da IA não é um JSON válido e não pôde ser processada no servidor." })
-        };
-    }
+
+    const output = data.candidates?.[0]?.content?.parts?.[0]?.text || '[]'; // Default to an empty array as a string
+
+    return {
+      statusCode: 200,
+      body: JSON.stringify({ text: output }),
+    };
 
   } catch (error) {
     console.error("Netlify Function Error:", error);
     return {
       statusCode: 500,
-      body: JSON.stringify({ error: error.message || "Ocorreu um erro interno no servidor." }),
+      body: JSON.stringify({ 
+        error: "Erro ao processar a resposta da IA no servidor.",
+        details: error.message 
+      }),
     };
   }
 };
