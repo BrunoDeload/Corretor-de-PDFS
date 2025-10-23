@@ -24,15 +24,8 @@ const responseSchema = {
 };
 
 export const correctMenuText = async (text: string): Promise<Correction[]> => {
-  const API_KEY = process.env.VITE_API_KEY;
-
-  if (!API_KEY) {
-    throw new Error(
-      "Chave de API não configurada. Certifique-se de que a variável de ambiente 'VITE_API_KEY' está definida nas configurações do seu site no Netlify."
-    );
-  }
-
-  const ai = new GoogleGenAI({ apiKey: API_KEY });
+  // A chave da API é injetada automaticamente pelo ambiente como process.env.API_KEY.
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
   try {
     const response = await ai.models.generateContent({
@@ -66,9 +59,6 @@ export const correctMenuText = async (text: string): Promise<Correction[]> => {
     console.error("Erro no serviço da Gemini:", error);
     
     if (error instanceof Error) {
-        if (error.message.toLowerCase().includes("api key not valid")) {
-            throw new Error("A chave da API (VITE_API_KEY) é inválida. Verifique a chave e tente novamente.");
-        }
         if (error instanceof SyntaxError) {
             throw new Error("A resposta da IA não é um JSON válido. Não foi possível processar as correções.");
         }
