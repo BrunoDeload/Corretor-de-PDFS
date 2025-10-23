@@ -48,8 +48,8 @@ exports.handler = async function (event) {
         parts: [{ text: prompt }]
       }],
       generationConfig: {
-        // Força a saída a ser um JSON válido
-        response_mime_type: "application/json",
+        // Força a saída a ser um JSON válido (camelCase é o correto)
+        responseMimeType: "application/json",
       }
     };
 
@@ -73,27 +73,40 @@ exports.handler = async function (event) {
 
     const data = await geminiResponse.json();
     
-    // Extrai o texto JSON da resposta da API
-    const jsonText = data.candidates?.[0]?.content?.parts?.[0]?.text;
-
-    if (!jsonText) {
-      // Isso pode acontecer se a IA retornar uma resposta vazia ou for bloqueada por segurança
-      if (data.promptFeedback?.blockReason) {
+    if (data.promptFeedback?.blockReason) {
         return { 
           statusCode: 400, 
           body: JSON.stringify({ error: `O conteúdo foi bloqueado por razões de segurança: ${data.promptFeedback.blockReason}` }) 
         };
-      }
-      // Se não houver correções, a IA deve retornar '[]', que será tratado aqui.
+    }
+      
+    const jsonText = data.candidates?.[0]?.content?.parts?.[0]?.text;
+
+    if (!jsonText) {
+      // Se não houver texto e nenhum bloqueio, assuma que não há correções.
       return { statusCode: 200, headers: { 'Content-Type': 'application/json' }, body: '[]' };
     }
 
-    // Retorna o JSON diretamente, que o frontend irá processar.
-    return {
-      statusCode: 200,
-      headers: { 'Content-Type': 'application/json' },
-      body: jsonText,
-    };
+    try {
+        // Limpa a resposta para remover o markdown que a IA pode adicionar por engano
+        const cleanedJsonText = jsonText.replace(/^```json\s*/, '').replace(/```\s*$/, '').trim();
+
+        // Valida o JSON no servidor antes de enviar para o cliente para evitar erros de parsing no frontend
+        JSON.parse(cleanedJsonText);
+
+        // Retorna o JSON limpo e validado
+        return {
+            statusCode: 200,
+            headers: { 'Content-Type': 'application/json' },
+            body: cleanedJsonText,
+        };
+    } catch (e) {
+        console.error("Erro ao processar JSON da API Gemini. Resposta bruta:", jsonText);
+        return {
+            statusCode: 500,
+            body: JSON.stringify({ error: 'A resposta da IA não é um JSON válido. Não foi possível processar as correções no servidor.' })
+        };
+    }
 
   } catch (err) {
     console.error("Netlify Function Error:", err);
