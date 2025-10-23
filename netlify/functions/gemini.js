@@ -1,7 +1,7 @@
 // netlify/functions/gemini.js
 
-// This function acts as a simple proxy to the Gemini API.
-// It returns the raw text response from the AI inside a JSON object: { "text": "..." }
+// This function now handles cleaning and parsing the AI's response.
+// It returns a fully validated JSON array of corrections or a structured error object.
 exports.handler = async (event) => {
   if (event.httpMethod !== 'POST') {
     return { 
@@ -49,33 +49,65 @@ exports.handler = async (event) => {
 
     if (!apiResponse.ok) {
         console.error("Gemini API Error:", data);
+        const errorMessage = data.error?.message || `Erro na API Gemini: ${apiResponse.statusText}`;
         return {
             statusCode: apiResponse.status,
-            body: JSON.stringify({ error: data.error?.message || `Erro na API Gemini: ${apiResponse.statusText}` })
+            body: JSON.stringify({ error: errorMessage })
         };
     }
 
     if (data.promptFeedback?.blockReason) {
-        console.warn("Prompt blocked:", data.promptFeedback.blockReason);
+        const reason = data.promptFeedback.blockReason;
+        console.warn("Prompt blocked:", reason);
         return {
             statusCode: 400,
-            body: JSON.stringify({ error: `A solicitação foi bloqueada por motivos de segurança: ${data.promptFeedback.blockReason}` })
+            body: JSON.stringify({ error: `A solicitação foi bloqueada por motivos de segurança: ${reason}` })
         };
     }
 
-    const output = data.candidates?.[0]?.content?.parts?.[0]?.text || '[]'; // Default to an empty array as a string
+    const aiTextResponse = data.candidates?.[0]?.content?.parts?.[0]?.text;
 
-    return {
-      statusCode: 200,
-      body: JSON.stringify({ text: output }),
-    };
+    if (!aiTextResponse) {
+        // AI returned no text, which is a valid scenario (e.g., no corrections found).
+        // The prompt asks for [], so we return that.
+        return {
+            statusCode: 200,
+            body: JSON.stringify([]),
+        };
+    }
+    
+    try {
+        // The server now takes responsibility for cleaning and parsing the AI's response.
+        const cleanedJsonText = aiTextResponse.trim().replace(/^```json\s*/, '').replace(/\s*```$/, '');
+        
+        if (cleanedJsonText === '') {
+          return { statusCode: 200, body: JSON.stringify([]) };
+        }
+
+        const corrections = JSON.parse(cleanedJsonText);
+        
+        return {
+          statusCode: 200,
+          body: JSON.stringify(corrections), // Send the already parsed and validated data
+        };
+    } catch (parseError) {
+        console.error("Failed to parse Gemini response on server:", parseError);
+        console.error("Original AI response was:", aiTextResponse);
+        return {
+            statusCode: 500,
+            body: JSON.stringify({ 
+                error: "A resposta da IA não é um JSON válido. Não foi possível processar as correções.",
+                details: aiTextResponse // Send the faulty text back for debugging
+            }),
+        };
+    }
 
   } catch (error) {
     console.error("Netlify Function Error:", error);
     return {
       statusCode: 500,
       body: JSON.stringify({ 
-        error: "Erro ao processar a resposta da IA no servidor.",
+        error: "Erro interno no servidor ao processar a solicitação.",
         details: error.message 
       }),
     };
