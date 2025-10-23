@@ -1,4 +1,3 @@
-
 import React, { useState, useCallback } from 'react';
 import { type Correction } from './types';
 import { correctMenuText } from './services/geminiService';
@@ -9,88 +8,103 @@ import { UploadIcon, CheckCircleIcon, AlertTriangleIcon } from './components/Ico
 // This is required for pdfjs-dist
 declare const pdfjsLib: any;
 
+const extractTextFromPdf = (file: File): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = async () => {
+      try {
+        const fileBuffer = reader.result as ArrayBuffer;
+        const typedarray = new Uint8Array(fileBuffer);
+        
+        const pdf = await pdfjsLib.getDocument(typedarray).promise;
+        let fullText = '';
+        for (let i = 1; i <= pdf.numPages; i++) {
+          const page = await pdf.getPage(i);
+          const textContent = await page.getTextContent();
+          fullText += textContent.items.map((item: any) => item.str).join(' ') + '\n';
+        }
+        resolve(fullText);
+      } catch (err) {
+        reject(new Error("Falha ao processar o arquivo PDF."));
+      }
+    };
+    reader.onerror = () => reject(new Error("Falha ao ler o arquivo."));
+    reader.readAsArrayBuffer(file);
+  });
+};
+
+
 const App: React.FC = () => {
-  const [pdfFile, setPdfFile] = useState<File | null>(null);
+  const [extractedText, setExtractedText] = useState<string>('');
   const [corrections, setCorrections] = useState<Correction[]>([]);
-  const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [isExtracting, setIsExtracting] = useState<boolean>(false);
+  const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [fileName, setFileName] = useState<string>('');
+  const [hasAnalyzed, setHasAnalyzed] = useState<boolean>(false);
 
-  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
+
+    // Reset everything
+    setFileName('');
+    setError(null);
+    setCorrections([]);
+    setHasAnalyzed(false);
+    setExtractedText('');
+
     if (file && file.type === 'application/pdf') {
-      setPdfFile(file);
-      setFileName(file.name);
+      setIsExtracting(true);
       setError(null);
-      setCorrections([]);
-    } else {
+      setFileName(file.name);
+
+      try {
+        const text = await extractTextFromPdf(file);
+        if (text.trim().length === 0) {
+          setError("Não foi possível extrair texto do PDF. O arquivo pode estar vazio ou ser uma imagem.");
+          setExtractedText('');
+        } else {
+          setExtractedText(text);
+        }
+      } catch (err) {
+        console.error("PDF extraction error:", err);
+        setError(err instanceof Error ? err.message : "Ocorreu um erro ao extrair o texto do PDF.");
+        setExtractedText('');
+      } finally {
+        setIsExtracting(false);
+      }
+
+    } else if (file) {
       setError('Por favor, selecione um arquivo PDF válido.');
-      setPdfFile(null);
-      setFileName('');
     }
   };
 
-  const processPdf = useCallback(async () => {
-    if (!pdfFile) {
-      setError('Nenhum arquivo PDF selecionado.');
+  const handleAnalyzeClick = useCallback(async () => {
+    if (!extractedText) {
+      setError('Não há texto para analisar.');
       return;
     }
 
-    setIsLoading(true);
+    setIsAnalyzing(true);
     setError(null);
     setCorrections([]);
+    setHasAnalyzed(false);
 
     try {
-      const reader = new FileReader();
-      reader.onload = async (e) => {
-        if (e.target?.result) {
-          const typedarray = new Uint8Array(e.target.result as ArrayBuffer);
-          
-          try {
-            const pdf = await pdfjsLib.getDocument(typedarray).promise;
-            let fullText = '';
-            for (let i = 1; i <= pdf.numPages; i++) {
-              const page = await pdf.getPage(i);
-              const textContent = await page.getTextContent();
-              fullText += textContent.items.map((item: any) => item.str).join(' ') + '\n';
-            }
-            
-            if (fullText.trim().length === 0) {
-              setError("Não foi possível extrair texto do PDF. O arquivo pode estar vazio ou ser uma imagem.");
-              setIsLoading(false);
-              return;
-            }
-
-            const result = await correctMenuText(fullText);
-            setCorrections(result);
-          } catch (pdfError) {
-             console.error("PDF processing or API error:", pdfError);
-             if (pdfError instanceof Error) {
-                setError(pdfError.message);
-             } else {
-                setError('Ocorreu um erro desconhecido ao processar o PDF ou chamar a IA.');
-             }
-          } finally {
-            setIsLoading(false);
-          }
-        }
-      };
-      reader.onerror = () => {
-          setError('Falha ao ler o arquivo.');
-          setIsLoading(false);
-      }
-      reader.readAsArrayBuffer(pdfFile);
-
+        const result = await correctMenuText(extractedText);
+        setCorrections(result);
     } catch (err) {
-      console.error(err);
-      if (err instanceof Error) {
-        setError(err.message);
-      } else {
-        setError('Ocorreu um erro inesperado.');
-      }
-      setIsLoading(false);
+       console.error("API error:", err);
+       if (err instanceof Error) {
+          setError(err.message);
+       } else {
+          setError('Ocorreu um erro desconhecido ao chamar a IA.');
+       }
+    } finally {
+      setIsAnalyzing(false);
+      setHasAnalyzed(true);
     }
-  }, [pdfFile]);
+  }, [extractedText]);
 
   return (
     <div className="min-h-screen bg-gray-900 text-gray-100 font-sans p-4 sm:p-6 lg:p-8">
@@ -118,18 +132,36 @@ const App: React.FC = () => {
                   Arquivo selecionado: <span className="font-semibold text-teal-400">{fileName}</span>
                 </p>
               )}
+              
+              {isExtracting && (
+                <div className="flex items-center mt-4 text-gray-400">
+                    <Spinner />
+                    <span className="ml-2">Extraindo texto do PDF...</span>
+                </div>
+              )}
+
+              {extractedText && !isExtracting && (
+                  <details className="w-full mt-4 bg-gray-900/50 rounded-lg border border-gray-700">
+                    <summary className="p-3 cursor-pointer font-semibold text-gray-300 hover:text-white list-none">
+                      Prévia do Texto Extraído
+                    </summary>
+                    <pre className="p-4 text-sm text-gray-400 whitespace-pre-wrap max-h-48 overflow-y-auto bg-gray-900 rounded-b-lg">
+                      {extractedText}
+                    </pre>
+                  </details>
+              )}
 
               <button
-                onClick={processPdf}
-                disabled={!pdfFile || isLoading}
+                onClick={handleAnalyzeClick}
+                disabled={!extractedText || isAnalyzing || isExtracting}
                 className="mt-6 w-full sm:w-auto px-8 py-3 bg-gradient-to-r from-teal-500 to-cyan-600 text-white font-bold rounded-lg shadow-lg hover:shadow-xl hover:scale-105 focus:outline-none focus:ring-4 focus:ring-teal-500/50 disabled:opacity-50 disabled:cursor-not-allowed disabled:scale-100 transition-all duration-300"
               >
-                {isLoading ? 'Analisando...' : 'Corrigir Cardápio'}
+                {isAnalyzing ? 'Analisando...' : 'Corrigir Cardápio'}
               </button>
             </div>
           </div>
 
-          {isLoading && (
+          {isAnalyzing && (
             <div className="flex flex-col items-center justify-center p-8 bg-gray-800 rounded-2xl">
               <Spinner />
               <p className="mt-4 text-lg text-gray-300">Analisando seu cardápio com a IA... Isso pode levar um momento.</p>
@@ -143,7 +175,7 @@ const App: React.FC = () => {
             </div>
           )}
 
-          {!isLoading && corrections.length > 0 && (
+          {!isAnalyzing && corrections.length > 0 && (
             <div>
               <h2 className="text-2xl font-bold text-center mb-6 text-teal-400">Sugestões de Melhoria</h2>
               <div className="grid grid-cols-1 md:grid-cols-1 gap-6">
@@ -154,7 +186,7 @@ const App: React.FC = () => {
             </div>
           )}
 
-          {!isLoading && corrections.length === 0 && pdfFile && !error && (
+          {!isAnalyzing && hasAnalyzed && corrections.length === 0 && !error && (
             <div className="flex flex-col items-center p-8 bg-green-900/50 border border-green-700 text-green-300 rounded-lg">
                 <CheckCircleIcon className="w-12 h-12 mb-4"/>
                 <h3 className="text-xl font-bold">Ótimo trabalho!</h3>
