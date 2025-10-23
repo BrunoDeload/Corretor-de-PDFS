@@ -24,6 +24,10 @@ const responseSchema = {
 };
 
 export const correctMenuText = async (text: string): Promise<Correction[]> => {
+  if (!process.env.API_KEY) {
+    throw new Error("Chave da API não configurada. Por favor, configure a variável de ambiente API_KEY no seu ambiente de hospedagem (ex: Netlify) para que a aplicação possa funcionar.");
+  }
+  
   // A chave da API é injetada automaticamente pelo ambiente como process.env.API_KEY.
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
