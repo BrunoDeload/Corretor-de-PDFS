@@ -24,11 +24,11 @@ const responseSchema = {
 };
 
 export const correctMenuText = async (text: string): Promise<Correction[]> => {
-  const API_KEY = process.env.API_KEY;
+  const API_KEY = process.env.VITE_API_KEY;
 
   if (!API_KEY) {
     throw new Error(
-      "Chave de API não configurada. Se você publicou este app em serviços como Netlify ou Vercel, certifique-se de adicionar a variável de ambiente 'API_KEY' nas configurações do seu site."
+      "Chave de API não configurada. Certifique-se de que a variável de ambiente 'VITE_API_KEY' está definida nas configurações do seu site no Netlify."
     );
   }
 
@@ -67,7 +67,7 @@ export const correctMenuText = async (text: string): Promise<Correction[]> => {
     
     if (error instanceof Error) {
         if (error.message.toLowerCase().includes("api key not valid")) {
-            throw new Error("A chave da API (API_KEY) é inválida. Verifique a chave e tente novamente.");
+            throw new Error("A chave da API (VITE_API_KEY) é inválida. Verifique a chave e tente novamente.");
         }
         if (error instanceof SyntaxError) {
             throw new Error("A resposta da IA não é um JSON válido. Não foi possível processar as correções.");

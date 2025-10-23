@@ -38,11 +38,12 @@ const ApiKeyStatus: React.FC = () => {
 
     useEffect(() => {
         // This check runs only in the client-side after mounting
-        // In production builds, process.env variables are replaced at build time.
-        if (process.env.API_KEY && process.env.API_KEY.length > 5) {
+        // In production builds, process.env variables are replaced at build time,
+        // but only if they are prefixed (e.g., VITE_).
+        if (process.env.VITE_API_KEY && process.env.VITE_API_KEY.length > 5) {
             setStatus({ message: "Diagnóstico: Chave de API detectada pelo ambiente.", color: 'text-green-400' });
         } else {
-            setStatus({ message: "Diagnóstico: Chave de API NÃO detectada. Verifique as variáveis de ambiente no seu serviço de hospedagem (Netlify).", color: 'text-yellow-400' });
+            setStatus({ message: "Diagnóstico: Chave de API NÃO detectada. Verifique se a variável de ambiente 'VITE_API_KEY' está configurada no seu serviço de hospedagem (Netlify).", color: 'text-yellow-400' });
         }
     }, []);
 
