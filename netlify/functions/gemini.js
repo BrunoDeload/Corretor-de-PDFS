@@ -31,11 +31,9 @@ exports.handler = async function (event) {
     }
 
     const prompt = `
-      Você é um especialista em revisão de cardápios de restaurantes. Sua tarefa é corrigir erros gramaticais, de ortografia e sugerir melhorias nas descrições dos pratos.
-      Para o texto do cardápio a seguir, identifique problemas e forneça sugestões.
-      A saída DEVE ser um array JSON válido de objetos. Cada objeto deve ter três propriedades: "original" (o trecho de texto problemático original), "issue" (uma breve explicação do problema, por exemplo, "Erro de ortografia" ou "Descrição pouco apetitosa") e "suggestion" (o texto corrigido ou melhorado).
-      Se não houver erros ou pontos de melhoria, retorne um array vazio [].
-      NÃO inclua nenhum texto, explicação, markdown ou a tag \`\`\`json\`\`\` antes ou depois do array JSON. A resposta deve ser apenas o array.
+      Você é um especialista em revisão de cardápios de restaurantes. Sua tarefa é analisar o texto do cardápio fornecido, identificar erros gramaticais, de ortografia, e encontrar oportunidades para melhorar as descrições dos pratos, tornando-as mais apetitosas e claras.
+      
+      Analise o texto a seguir e forneça uma lista de correções e sugestões. Para cada ponto encontrado, identifique o texto original, descreva o problema e forneça a sugestão de melhoria. Se não encontrar nenhum problema, retorne uma lista vazia.
 
       Texto do Cardápio para Análise:
       ---
@@ -48,8 +46,28 @@ exports.handler = async function (event) {
         parts: [{ text: prompt }]
       }],
       generationConfig: {
-        // Força a saída a ser um JSON válido (camelCase é o correto)
         responseMimeType: "application/json",
+        responseSchema: {
+          type: "ARRAY",
+          items: {
+            type: "OBJECT",
+            properties: {
+              original: {
+                type: "STRING",
+                description: "O trecho de texto original do cardápio que contém um problema."
+              },
+              issue: {
+                type: "STRING",
+                description: "Uma explicação clara e concisa do problema encontrado (ex: 'Erro de ortografia', 'Concordância verbal incorreta', 'Descrição pouco clara')."
+              },
+              suggestion: {
+                type: "STRING",
+                description: "A versão corrigida e/ou melhorada do texto original."
+              }
+            },
+            required: ["original", "issue", "suggestion"]
+          }
+        }
       }
     };
 
@@ -88,17 +106,14 @@ exports.handler = async function (event) {
     }
 
     try {
-        // Limpa a resposta para remover o markdown que a IA pode adicionar por engano
-        const cleanedJsonText = jsonText.replace(/^```json\s*/, '').replace(/```\s*$/, '').trim();
+        // A resposta com responseSchema já deve ser um JSON limpo, mas a validação é uma boa prática.
+        JSON.parse(jsonText);
 
-        // Valida o JSON no servidor antes de enviar para o cliente para evitar erros de parsing no frontend
-        JSON.parse(cleanedJsonText);
-
-        // Retorna o JSON limpo e validado
+        // Retorna o JSON validado
         return {
             statusCode: 200,
             headers: { 'Content-Type': 'application/json' },
-            body: cleanedJsonText,
+            body: jsonText,
         };
     } catch (e) {
         console.error("Erro ao processar JSON da API Gemini. Resposta bruta:", jsonText);
