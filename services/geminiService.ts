@@ -1,23 +1,42 @@
+import { GoogleGenAI, Type } from '@google/genai';
 import { type Correction } from '../types';
 
-// This function now expects the server to return the final JSON array of corrections directly.
-// All cleaning and parsing is handled by the Netlify function.
+// Inicializa o cliente GoogleGenAI.
+// A chave da API é fornecida automaticamente pelo ambiente.
+const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+
+// Define o esquema estruturado para a saída JSON do modelo.
+// Isso garante que obteremos uma resposta consistente e previsível.
+const responseSchema = {
+    type: Type.ARRAY,
+    items: {
+      type: Type.OBJECT,
+      properties: {
+        original: {
+          type: Type.STRING,
+          description: "O texto exato do cardápio que contém o problema.",
+        },
+        issue: {
+          type: Type.STRING,
+          description: "Uma descrição clara e concisa do problema encontrado (ex: erro de ortografia, gramática, descrição pouco apetitosa).",
+        },
+        suggestion: {
+          type: Type.STRING,
+          description: "A sugestão de texto corrigido ou melhorado para substituir o original.",
+        },
+      },
+      // Garante que todas as propriedades estejam presentes em cada objeto
+      required: ["original", "issue", "suggestion"],
+    },
+};
+
+// Esta função agora chama a API Gemini diretamente do cliente.
+// Isso remove o intermediário da função Netlify, evitando timeouts do servidor.
 export const correctMenuText = async (text: string): Promise<Correction[]> => {
   const prompt = `
     Você é um especialista em revisão de cardápios de restaurantes. Sua tarefa é analisar o texto do cardápio fornecido, identificar erros gramaticais, de ortografia, e encontrar oportunidades para melhorar as descrições dos pratos, tornando-as mais apetitosas e claras.
     
-    Sua resposta DEVE ser um array JSON válido de objetos, seguindo estritamente este formato:
-    [
-      { 
-        "original": "O texto exato com o problema", 
-        "issue": "Uma descrição clara e concisa do problema encontrado", 
-        "suggestion": "A sugestão de melhoria para o texto" 
-      }
-    ]
-
-    Se não encontrar nenhum problema, retorne um array JSON vazio [].
-    NÃO inclua texto explicativo antes ou depois do array JSON.
-    NÃO inclua a formatação markdown \`\`\`json. Sua resposta deve começar com '[' e terminar com ']'.
+    Analise o texto abaixo e retorne suas correções. Se não encontrar nenhum problema, retorne um array vazio.
 
     Texto do Cardápio para Análise:
     ---
@@ -26,39 +45,40 @@ export const correctMenuText = async (text: string): Promise<Correction[]> => {
   `;
 
   try {
-    const response = await fetch('/.netlify/functions/gemini', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ prompt }),
+    const response = await ai.models.generateContent({
+        model: 'gemini-2.5-flash',
+        contents: prompt,
+        config: {
+            responseMimeType: 'application/json',
+            responseSchema: responseSchema,
+        },
     });
-
-    // The response body is now expected to be the final JSON data (or an error object).
-    const responseData = await response.json();
-
-    if (!response.ok) {
-      // The body of a non-ok response is { error: '...', details: '...' }
-      throw new Error(responseData.error || `Erro do servidor: ${response.statusText}`);
-    }
     
-    // On success, the body should be the array of corrections.
-    if (!Array.isArray(responseData)) {
-        console.error("A resposta do servidor não é um array válido:", responseData);
-        throw new Error("A resposta do servidor não está no formato esperado (não é uma lista de correções).");
+    // O SDK com um responseSchema deve retornar uma string JSON analisável em response.text
+    const jsonText = response.text;
+    
+    const corrections = JSON.parse(jsonText);
+
+    // Validação final para garantir que a estrutura de dados esteja correta.
+    if (!Array.isArray(corrections)) {
+        console.error("A resposta da IA não é um array válido:", corrections);
+        throw new Error("A resposta da IA não está no formato esperado (não é uma lista de correções).");
     }
 
-    return responseData as Correction[];
+    return corrections as Correction[];
 
   } catch (error) {
-    console.error("Erro na comunicação ou processamento:", error);
-    if (error instanceof SyntaxError) {
-        // This likely means the server function crashed or timed out, returning a non-JSON response (e.g., empty).
-        throw new Error("Erro de comunicação com o servidor. A análise pode ter demorado demais. Por favor, tente novamente.");
-    }
+    console.error("Erro ao chamar a API Gemini:", error);
     if (error instanceof Error) {
-        throw new Error(error.message || "Não foi possível analisar o cardápio.");
+        // Fornece mensagens de erro mais específicas e úteis ao usuário.
+        if (error.message.includes('API key not valid')) {
+             throw new Error("Sua chave da API não é válida. Por favor, verifique a configuração.");
+        }
+        if (error.message.includes('fetch failed')) {
+            throw new Error("Erro de rede. Verifique sua conexão com a internet e tente novamente.")
+        }
+        throw new Error(`Ocorreu um erro ao comunicar com a IA. Tente novamente mais tarde.`);
     }
-    throw new Error("Ocorreu um erro desconhecido ao chamar a API.");
+    throw new Error("Ocorreu um erro desconhecido ao analisar o cardápio.");
   }
 };
