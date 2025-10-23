@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { type Correction } from './types';
 import { correctMenuText } from './services/geminiService';
 import CorrectionCard from './components/CorrectionCard';
@@ -31,6 +31,28 @@ const extractTextFromPdf = (file: File): Promise<string> => {
     reader.onerror = () => reject(new Error("Falha ao ler o arquivo."));
     reader.readAsArrayBuffer(file);
   });
+};
+
+const ApiKeyStatus: React.FC = () => {
+    const [status, setStatus] = useState<{message: string; color: string} | null>(null);
+
+    useEffect(() => {
+        // This check runs only in the client-side after mounting
+        // In production builds, process.env variables are replaced at build time.
+        if (process.env.API_KEY && process.env.API_KEY.length > 5) {
+            setStatus({ message: "Diagnóstico: Chave de API detectada pelo ambiente.", color: 'text-green-400' });
+        } else {
+            setStatus({ message: "Diagnóstico: Chave de API NÃO detectada. Verifique as variáveis de ambiente no seu serviço de hospedagem (Netlify).", color: 'text-yellow-400' });
+        }
+    }, []);
+
+    if (!status) return null;
+
+    return (
+        <div className={`text-center text-sm p-2 mb-4 rounded-lg bg-gray-800 border border-gray-700 ${status.color}`}>
+            {status.message}
+        </div>
+    );
 };
 
 
@@ -109,6 +131,9 @@ const App: React.FC = () => {
   return (
     <div className="min-h-screen bg-gray-900 text-gray-100 font-sans p-4 sm:p-6 lg:p-8">
       <div className="max-w-4xl mx-auto">
+        
+        <ApiKeyStatus />
+
         <header className="text-center mb-10">
           <h1 className="text-4xl sm:text-5xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-teal-400 to-cyan-500 mb-2">
             Corretor de Cardápio com IA
