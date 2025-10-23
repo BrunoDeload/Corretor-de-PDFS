@@ -111,11 +111,12 @@ const App: React.FC = () => {
         
         <header className="text-center mb-10">
           <h1 className="text-4xl sm:text-5xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-teal-400 to-cyan-500 mb-2">
-            Corretor de Cardápio com IA
+            Dale Cardápio Corretor
           </h1>
           <p className="text-lg text-gray-400">
             Envie o PDF do seu cardápio e deixe a IA da Gemini aprimorá-lo para você.
           </p>
+          <p className="text-sm text-gray-500 mt-2">Criado por Bruno Eduardo</p>
         </header>
 
         <main>
@@ -164,7 +165,7 @@ const App: React.FC = () => {
           {isAnalyzing && (
             <div className="flex flex-col items-center justify-center p-8 bg-gray-800 rounded-2xl">
               <Spinner />
-              <p className="mt-4 text-lg text-gray-300">Analisando seu cardápio com a IA... Isso pode levar um momento.</p>
+              <p className="mt-4 text-lg text-gray-300">Dale IA... Isso pode levar um momento.</p>
             </div>
           )}
 
