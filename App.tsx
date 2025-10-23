@@ -120,7 +120,7 @@ const App: React.FC = () => {
             Dale Cardápio Corretor
           </h1>
           <p className="text-lg text-gray-400">
-            Envie o PDF do seu cardápio e deixe a IA da Gemini aprimorá-lo para você.
+            Envie o PDF do seu cardápio e deixe a IA da Dale Corretor aprimorá-lo para você.
           </p>
           <p className="text-sm text-gray-500 mt-2">Criado por Bruno Eduardo</p>
         </header>
