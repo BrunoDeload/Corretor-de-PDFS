@@ -1,14 +1,5 @@
-
 import { GoogleGenAI, Type } from "@google/genai";
 import { type Correction } from '../types';
-
-const API_KEY = process.env.API_KEY;
-
-if (!API_KEY) {
-  throw new Error("API_KEY environment variable not set");
-}
-
-const ai = new GoogleGenAI({ apiKey: API_KEY });
 
 const responseSchema = {
   type: Type.ARRAY,
@@ -33,6 +24,14 @@ const responseSchema = {
 };
 
 export const correctMenuText = async (text: string): Promise<Correction[]> => {
+  const API_KEY = process.env.API_KEY;
+
+  if (!API_KEY) {
+    throw new Error("A chave da API (API_KEY) não foi configurada no ambiente de produção.");
+  }
+
+  const ai = new GoogleGenAI({ apiKey: API_KEY });
+
   try {
     const response = await ai.models.generateContent({
       model: "gemini-2.5-flash",
@@ -48,13 +47,16 @@ export const correctMenuText = async (text: string): Promise<Correction[]> => {
     const corrections = JSON.parse(jsonString);
 
     if (!Array.isArray(corrections)) {
-      console.error("Gemini did not return a valid array:", corrections);
+      console.error("A API Gemini não retornou um array válido:", corrections);
       throw new Error("A resposta da IA não está no formato esperado.");
     }
 
     return corrections as Correction[];
   } catch (error) {
-    console.error("Error calling Gemini API:", error);
-    throw new Error("Não foi possível analisar o cardápio. Tente novamente.");
+    console.error("Erro ao chamar a API Gemini:", error);
+    if (error instanceof Error && error.message.includes("API key not valid")) {
+        throw new Error("A chave da API (API_KEY) é inválida. Verifique suas credenciais no ambiente de produção.");
+    }
+    throw new Error("Não foi possível analisar o cardápio. A API pode estar indisponível ou a chave é inválida.");
   }
 };
