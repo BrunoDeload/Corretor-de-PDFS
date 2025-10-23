@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 import { type Correction } from './types';
 import { correctMenuText } from './services/geminiService';
 import CorrectionCard from './components/CorrectionCard';
@@ -105,6 +105,12 @@ const App: React.FC = () => {
     }
   }, [extractedText]);
 
+  const { spellingCorrections, improvementSuggestions } = useMemo(() => {
+    const spelling = corrections.filter(c => c.type === 'correção');
+    const improvements = corrections.filter(c => c.type === 'sugestão');
+    return { spellingCorrections: spelling, improvementSuggestions: improvements };
+  }, [corrections]);
+
   return (
     <div className="min-h-screen bg-gray-900 text-gray-100 font-sans p-4 sm:p-6 lg:p-8">
       <div className="max-w-4xl mx-auto">
@@ -175,17 +181,31 @@ const App: React.FC = () => {
                 <span>{error}</span>
             </div>
           )}
+          
+          <div className="space-y-12">
+            {!isAnalyzing && spellingCorrections.length > 0 && (
+              <section>
+                <h2 className="text-2xl font-bold text-center mb-6 text-red-400">Correções Ortográficas e Gramaticais</h2>
+                <div className="grid grid-cols-1 md:grid-cols-1 gap-6">
+                  {spellingCorrections.map((correction, index) => (
+                    <CorrectionCard key={`corr-${index}`} correction={correction} />
+                  ))}
+                </div>
+              </section>
+            )}
 
-          {!isAnalyzing && corrections.length > 0 && (
-            <div>
-              <h2 className="text-2xl font-bold text-center mb-6 text-teal-400">Sugestões de Melhoria</h2>
-              <div className="grid grid-cols-1 md:grid-cols-1 gap-6">
-                {corrections.map((correction, index) => (
-                  <CorrectionCard key={index} correction={correction} />
-                ))}
-              </div>
-            </div>
-          )}
+            {!isAnalyzing && improvementSuggestions.length > 0 && (
+              <section>
+                <h2 className="text-2xl font-bold text-center mb-6 text-green-400">Sugestões de Aprimoramento</h2>
+                <div className="grid grid-cols-1 md:grid-cols-1 gap-6">
+                  {improvementSuggestions.map((correction, index) => (
+                    <CorrectionCard key={`sugg-${index}`} correction={correction} />
+                  ))}
+                </div>
+              </section>
+            )}
+          </div>
+
 
           {!isAnalyzing && hasAnalyzed && corrections.length === 0 && !error && (
             <div className="flex flex-col items-center p-8 bg-green-900/50 border border-green-700 text-green-300 rounded-lg">

@@ -18,15 +18,19 @@ const responseSchema = {
         },
         issue: {
           type: Type.STRING,
-          description: "Uma descrição clara e concisa do problema encontrado (ex: erro de ortografia, gramática, descrição pouco apetitosa).",
+          description: "Uma descrição clara e concisa do problema encontrado.",
         },
         suggestion: {
           type: Type.STRING,
           description: "A sugestão de texto corrigido ou melhorado para substituir o original.",
         },
+        type: {
+            type: Type.STRING,
+            description: "A classificação do problema. Deve ser 'correção' para erros de ortografia/gramática ou 'sugestão' para melhorias de clareza, estilo ou persuasão."
+        }
       },
       // Garante que todas as propriedades estejam presentes em cada objeto
-      required: ["original", "issue", "suggestion"],
+      required: ["original", "issue", "suggestion", "type"],
     },
 };
 
@@ -34,9 +38,11 @@ const responseSchema = {
 // Isso remove o intermediário da função Netlify, evitando timeouts do servidor.
 export const correctMenuText = async (text: string): Promise<Correction[]> => {
   const prompt = `
-    Você é um especialista em revisão de cardápios de restaurantes. Sua tarefa é analisar o texto do cardápio fornecido, identificar erros gramaticais, de ortografia, e encontrar oportunidades para melhorar as descrições dos pratos, tornando-as mais apetitosas e claras.
-    
-    Analise o texto abaixo e retorne suas correções. Se não encontrar nenhum problema, retorne um array vazio.
+    Você é um especialista em revisão de cardápios de restaurantes. Sua tarefa é analisar o texto do cardápio fornecido, identificar dois tipos de problemas:
+    1.  **Correções:** Erros gramaticais e de ortografia.
+    2.  **Sugestões:** Oportunidades para melhorar as descrições dos pratos, tornando-as mais apetitosas, claras ou persuasivas.
+
+    Analise o texto abaixo. Para cada item encontrado, classifique-o como 'correção' ou 'sugestão'. Se não encontrar nenhum problema, retorne um array vazio.
 
     Texto do Cardápio para Análise:
     ---
