@@ -106,14 +106,15 @@ exports.handler = async function (event) {
     }
 
     try {
-        // A resposta com responseSchema já deve ser um JSON limpo, mas a validação é uma boa prática.
-        JSON.parse(jsonText);
+        // Analisa o texto da API para um objeto JavaScript.
+        const correctionsObject = JSON.parse(jsonText);
 
-        // Retorna o JSON validado
+        // Converte o objeto de volta para uma string JSON.
+        // Isso garante que estamos enviando uma string perfeitamente formatada para o cliente.
         return {
             statusCode: 200,
             headers: { 'Content-Type': 'application/json' },
-            body: jsonText,
+            body: JSON.stringify(correctionsObject),
         };
     } catch (e) {
         console.error("Erro ao processar JSON da API Gemini. Resposta bruta:", jsonText);
