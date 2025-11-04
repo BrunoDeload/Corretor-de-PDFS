@@ -1,5 +1,5 @@
 {
-  "name": "Corretor de Cardápio com IA",
-  "description": "Uma aplicação web que utiliza a API Gemini para analisar, corrigir e sugerir melhorias em cardápios enviados em formato PDF. Ideal para restaurantes que buscam aprimorar sua comunicação e apresentação.",
+  "name": "Dale Corretor",
+  "description": "Sua ferramenta de IA para correção de cardapio e artes",
   "requestFramePermissions": []
 }

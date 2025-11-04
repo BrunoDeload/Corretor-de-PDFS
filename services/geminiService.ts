@@ -192,3 +192,54 @@ export const compareMenuWithReference = async (menuText: string, referenceText: 
         throw new Error("Ocorreu um erro desconhecido ao comparar os documentos.");
     }
 };
+
+export const correctImageText = async (imageBase64: string, mimeType: string): Promise<Correction[]> => {
+  const prompt = `Você é um revisor especialista em materiais de marketing e design. Sua tarefa é extrair todo o texto da imagem fornecida e identificar erros de ortografia e gramática. Para cada erro, forneça o texto original, o problema e uma sugestão de correção. Classifique todos como 'correção'. Retorne os resultados no formato JSON especificado. Se nenhum erro for encontrado, retorne um array vazio.`;
+
+  const imagePart = {
+    inlineData: {
+      mimeType: mimeType,
+      data: imageBase64,
+    },
+  };
+
+  try {
+    const response = await ai.models.generateContent({
+        model: 'gemini-2.5-flash',
+        contents: { parts: [imagePart, { text: prompt }] },
+        config: {
+            responseMimeType: 'application/json',
+            responseSchema: responseSchema,
+        },
+    });
+    
+    const jsonText = response.text;
+    const corrections = JSON.parse(jsonText);
+
+    if (!Array.isArray(corrections)) {
+        console.error("A resposta da IA para imagem não é um array válido:", corrections);
+        throw new Error("A resposta da IA não está no formato esperado (não é uma lista de correções).");
+    }
+
+    return corrections as Correction[];
+
+  } catch (error) {
+    console.error("Erro ao chamar a API Gemini para imagem:", error);
+    
+    if (error instanceof Error) {
+        const message = error.message.replace(/\[.*?\]\s*:/, '').trim();
+        if (message.includes('API key not valid')) {
+          throw new Error("Chave da API inválida. Verifique se sua chave está configurada corretamente.");
+        }
+        if (message.includes('400 Bad Request')) {
+          throw new Error(`Sua solicitação de análise de imagem foi rejeitada pela IA. Detalhes: ${message}`);
+        }
+        if (message.match(/50\d/)) {
+          throw new Error("O serviço da IA está sobrecarregado ou indisponível no momento. Por favor, tente novamente em alguns minutos.");
+        }
+        throw new Error(`Erro na análise da imagem com IA: ${message}`);
+    }
+    
+    throw new Error("Ocorreu um erro desconhecido ao analisar a imagem.");
+  }
+};

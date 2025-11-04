@@ -1,7 +1,7 @@
 
 import React, { useState, useCallback, useMemo } from 'react';
 import { type Correction, type ComparisonResult } from './types';
-import { correctMenuText, compareMenuWithReference } from './services/geminiService';
+import { correctMenuText, compareMenuWithReference, correctImageText } from './services/geminiService';
 import CorrectionCard from './components/CorrectionCard';
 import ComparisonCard from './components/ComparisonCard';
 import Spinner from './components/Spinner';
@@ -96,28 +96,29 @@ const App: React.FC = () => {
   const [referenceFileName, setReferenceFileName] = useState<string>('');
   const [isProcessingReference, setIsProcessingReference] = useState<boolean>(false);
 
+  // State for Image file
+  const [imageBase64, setImageBase64] = useState<string>('');
+  const [imageMimeType, setImageMimeType] = useState<string>('');
+  const [imageFileName, setImageFileName] = useState<string>('');
+  const [isProcessingImage, setIsProcessingImage] = useState<boolean>(false);
+
   // State for results and errors
   const [corrections, setCorrections] = useState<Correction[]>([]);
   const [comparisonResults, setComparisonResults] = useState<ComparisonResult[]>([]);
+  const [imageCorrections, setImageCorrections] = useState<Correction[]>([]);
+  
   const [isCallingAI, setIsCallingAI] = useState<boolean>(false);
+  const [isCallingAIForImage, setIsCallingAIForImage] = useState<boolean>(false);
+  
   const [error, setError] = useState<string | null>(null);
+  const [imageError, setImageError] = useState<string | null>(null);
+  
   const [hasAnalyzed, setHasAnalyzed] = useState<boolean>(false);
-
-  const resetState = () => {
-      setPdfFileText('');
-      setPdfFileName('');
-      setReferenceFileText('');
-      setReferenceFileName('');
-      setError(null);
-      setCorrections([]);
-      setComparisonResults([]);
-      setHasAnalyzed(false);
-  };
+  const [hasAnalyzedImage, setHasAnalyzedImage] = useState<boolean>(false);
 
   const handlePdfFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     
-    // Clear previous PDF state and results
     setPdfFileText('');
     setPdfFileName('');
     setCorrections([]);
@@ -135,6 +136,7 @@ const App: React.FC = () => {
           setError("Não foi possível extrair texto do PDF. O arquivo pode estar vazio ou ser uma imagem.");
         } else {
           setPdfFileText(text);
+          setError(null);
         }
       } catch (err) {
         setError(err instanceof Error ? err.message : "Ocorreu um erro ao extrair o texto do PDF.");
@@ -149,7 +151,6 @@ const App: React.FC = () => {
   const handleReferenceFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
 
-    // Clear previous reference state and comparison results
     setReferenceFileText('');
     setReferenceFileName('');
     setComparisonResults([]);
@@ -176,6 +177,7 @@ const App: React.FC = () => {
           setError("Não foi possível extrair texto do arquivo de referência. O arquivo pode estar vazio.");
         } else {
           setReferenceFileText(text);
+          setError(null);
         }
       } catch (err) {
         setError(err instanceof Error ? err.message : "Ocorreu um erro ao extrair o texto do arquivo de referência.");
@@ -187,7 +189,41 @@ const App: React.FC = () => {
     }
   };
 
-  const handleProcessClick = useCallback(async () => {
+  const handleImageFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+
+    setImageBase64('');
+    setImageMimeType('');
+    setImageFileName('');
+    setImageCorrections([]);
+    setImageError(null);
+    setHasAnalyzedImage(false);
+
+    if (!file) return;
+
+    const validTypes = ['image/jpeg', 'image/png'];
+    if (validTypes.includes(file.type)) {
+      setIsProcessingImage(true);
+      setImageFileName(file.name);
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const result = reader.result as string;
+        setImageBase64(result.split(',')[1]); // Remove the data URL prefix
+        setImageMimeType(file.type);
+        setImageError(null);
+        setIsProcessingImage(false);
+      };
+      reader.onerror = () => {
+        setImageError("Falha ao ler o arquivo de imagem.");
+        setIsProcessingImage(false);
+      };
+      reader.readAsDataURL(file);
+    } else {
+      setImageError('Por favor, selecione um arquivo de imagem .png ou .jpeg válido.');
+    }
+  };
+
+  const handleProcessMenuClick = useCallback(async () => {
     if (!pdfFileText) {
       setError('O arquivo PDF do cardápio é obrigatório.');
       return;
@@ -201,10 +237,8 @@ const App: React.FC = () => {
 
     try {
       const promises = [];
-      // Always run correction
       promises.push(correctMenuText(pdfFileText));
       
-      // Run comparison if a reference file is also provided
       if (referenceFileText) {
         promises.push(compareMenuWithReference(pdfFileText, referenceFileText));
       }
@@ -239,16 +273,44 @@ const App: React.FC = () => {
     }
   }, [pdfFileText, referenceFileText]);
 
+  const handleProcessImageClick = useCallback(async () => {
+    if (!imageBase64) {
+      setImageError('Nenhuma imagem selecionada para análise.');
+      return;
+    }
+    
+    setIsCallingAIForImage(true);
+    setImageError(null);
+    setImageCorrections([]);
+    setHasAnalyzedImage(false);
+
+    try {
+      const result = await correctImageText(imageBase64, imageMimeType);
+      setImageCorrections(result);
+    } catch (err) {
+      console.error("Image API error:", err);
+      if (err instanceof Error) {
+        setImageError(err.message);
+      } else {
+        setImageError('Ocorreu um erro desconhecido ao analisar a imagem.');
+      }
+    } finally {
+      setIsCallingAIForImage(false);
+      setHasAnalyzedImage(true);
+    }
+  }, [imageBase64, imageMimeType]);
+
   const { spellingCorrections, improvementSuggestions } = useMemo(() => {
     const spelling = corrections.filter(c => c.type === 'correção');
     const improvements = corrections.filter(c => c.type === 'sugestão');
     return { spellingCorrections: spelling, improvementSuggestions: improvements };
   }, [corrections]);
   
-  const isProcessing = isProcessingPdf || isProcessingReference;
-  const canProcess = pdfFileText && !isCallingAI && !isProcessing;
+  const isProcessingAnyFile = isProcessingPdf || isProcessingReference || isProcessingImage;
+  const canProcessMenu = pdfFileText && !isCallingAI && !isProcessingAnyFile;
+  const canProcessImage = imageBase64 && !isCallingAIForImage && !isProcessingAnyFile;
   
-  const buttonText = isCallingAI
+  const menuButtonText = isCallingAI
     ? (referenceFileText ? 'Processando...' : 'Corrigindo...')
     : (referenceFileText ? 'Corrigir e Comparar' : 'Corrigir Cardápio');
 
@@ -259,70 +321,101 @@ const App: React.FC = () => {
         
         <header className="text-center mb-10">
           <h1 className="text-4xl sm:text-5xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-red-600 to-black mb-2">
-            Dale Cardápio Corretor
+            Dale Corretor
           </h1>
           <p className="text-lg text-gray-600">
-            Sua ferramenta de IA para correção e comparação de cardápios.
+            Sua ferramenta de IA para correção de cardapio e artes.
           </p>
            <p className="text-sm text-gray-500 mt-2">Criado por Bruno Eduardo</p>
         </header>
 
         <main>
-          <div className="bg-gray-50 p-8 rounded-2xl shadow-2xl border border-gray-200 mb-8">
+          {/* Menu Corrector */}
+          <div className="bg-gray-50 p-8 rounded-2xl shadow-2xl border border-gray-200 mb-12">
+            <h2 className="text-2xl font-bold text-center mb-6 text-gray-800">Corretor de Cardápio</h2>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                {/* PDF Upload */}
                 <label htmlFor="pdf-upload" className="w-full flex flex-col items-center px-6 py-12 bg-white text-red-600 rounded-lg shadow-lg tracking-wide border-2 border-dashed border-gray-300 cursor-pointer hover:bg-red-50 hover:border-red-600 transition-all duration-300">
                     <UploadIcon className="w-12 h-12 mb-3" />
                     <span className="mt-2 text-base leading-normal font-semibold text-center">1. Cardápio (PDF)</span>
-                    <input id="pdf-upload" type="file" className="hidden" accept="application/pdf" onChange={handlePdfFileChange} disabled={isProcessing}/>
+                    <input id="pdf-upload" type="file" className="hidden" accept="application/pdf" onChange={handlePdfFileChange} disabled={isProcessingAnyFile}/>
                 </label>
-
-                {/* Reference File Upload */}
                 <label htmlFor="reference-upload" className="w-full flex flex-col items-center px-6 py-12 bg-white text-gray-700 rounded-lg shadow-lg tracking-wide border-2 border-dashed border-gray-300 cursor-pointer hover:bg-gray-100 hover:border-black transition-all duration-300">
                     <DocumentTextIcon className="w-12 h-12 mb-3" />
                     <span className="mt-2 text-base leading-normal font-semibold text-center">2. Ficha/Referência (.docx, .xlsx)</span>
                     <span className="text-xs text-gray-500">(Opcional para Comparação)</span>
-                    <input id="reference-upload" type="file" className="hidden" accept=".docx,.xlsx,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={handleReferenceFileChange} disabled={isProcessing}/>
+                    <input id="reference-upload" type="file" className="hidden" accept=".docx,.xlsx,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={handleReferenceFileChange} disabled={isProcessingAnyFile}/>
                 </label>
             </div>
-
             <div className="mt-6 space-y-3">
                  {pdfFileName && <p className="text-center text-gray-700">Cardápio: <span className="font-semibold text-red-700">{pdfFileName}</span></p>}
                  {referenceFileName && <p className="text-center text-gray-700">Referência: <span className="font-semibold text-black">{referenceFileName}</span></p>}
             </div>
-
-            {isProcessing && (
-                <div className="flex items-center justify-center mt-4 text-gray-600">
-                    <Spinner />
-                    <span className="ml-2">Processando arquivos...</span>
-                </div>
-            )}
-
             <div className="flex justify-center mt-6">
-                 <button onClick={handleProcessClick} disabled={!canProcess} className="px-8 py-3 bg-gradient-to-r from-red-600 to-black text-white font-bold rounded-lg shadow-lg hover:shadow-xl hover:scale-105 focus:outline-none focus:ring-4 focus:ring-red-500/50 disabled:opacity-50 disabled:cursor-not-allowed disabled:scale-100 transition-all duration-300">
-                    {buttonText}
+                 <button onClick={handleProcessMenuClick} disabled={!canProcessMenu} className="px-8 py-3 bg-gradient-to-r from-red-600 to-black text-white font-bold rounded-lg shadow-lg hover:shadow-xl hover:scale-105 focus:outline-none focus:ring-4 focus:ring-red-500/50 disabled:opacity-50 disabled:cursor-not-allowed disabled:scale-100 transition-all duration-300">
+                    {menuButtonText}
                 </button>
             </div>
           </div>
           
+          {/* Image Corrector */}
+          <div className="bg-gray-50 p-8 rounded-2xl shadow-2xl border border-gray-200 mb-8">
+            <h2 className="text-2xl font-bold text-center mb-6 text-gray-800">Corretor de Arte (Imagem)</h2>
+             <div className="grid grid-cols-1 gap-6">
+               <label htmlFor="image-upload" className="w-full flex flex-col items-center px-6 py-12 bg-white text-red-600 rounded-lg shadow-lg tracking-wide border-2 border-dashed border-gray-300 cursor-pointer hover:bg-red-50 hover:border-red-600 transition-all duration-300">
+                  <UploadIcon className="w-12 h-12 mb-3" />
+                  <span className="mt-2 text-base leading-normal font-semibold text-center">Carregar Arte (.png, .jpeg)</span>
+                  <input id="image-upload" type="file" className="hidden" accept="image/png, image/jpeg" onChange={handleImageFileChange} disabled={isProcessingAnyFile}/>
+              </label>
+             </div>
+             <div className="mt-6 space-y-3">
+                 {imageFileName && <p className="text-center text-gray-700">Arte: <span className="font-semibold text-red-700">{imageFileName}</span></p>}
+             </div>
+             <div className="flex justify-center mt-6">
+                 <button onClick={handleProcessImageClick} disabled={!canProcessImage} className="px-8 py-3 bg-gradient-to-r from-red-600 to-black text-white font-bold rounded-lg shadow-lg hover:shadow-xl hover:scale-105 focus:outline-none focus:ring-4 focus:ring-red-500/50 disabled:opacity-50 disabled:cursor-not-allowed disabled:scale-100 transition-all duration-300">
+                    Corrigir Arte
+                </button>
+            </div>
+          </div>
+
+          {(isProcessingAnyFile) && (
+              <div className="flex items-center justify-center mt-4 text-gray-600">
+                  <Spinner />
+                  <span className="ml-2">Processando arquivos...</span>
+              </div>
+          )}
+
           {isCallingAI && (
             <div className="flex flex-col items-center justify-center p-8 bg-gray-50 rounded-2xl">
               <Spinner />
-              <p className="mt-4 text-lg text-gray-700">Dale IA... Isso pode levar um momento.</p>
+              <p className="mt-4 text-lg text-gray-700">Analisando cardápio... Isso pode levar um momento.</p>
+            </div>
+          )}
+
+          {isCallingAIForImage && (
+            <div className="flex flex-col items-center justify-center p-8 bg-gray-50 rounded-2xl">
+              <Spinner />
+              <p className="mt-4 text-lg text-gray-700">Analisando imagem... Isso pode levar um momento.</p>
             </div>
           )}
 
           {error && (
-            <div className="flex items-center p-4 bg-red-100 border border-red-400 text-red-700 rounded-lg">
+            <div className="my-4 flex items-center p-4 bg-red-100 border border-red-400 text-red-700 rounded-lg">
                 <AlertTriangleIcon className="w-6 h-6 mr-3"/>
                 <span>{error}</span>
             </div>
           )}
+
+          {imageError && (
+            <div className="my-4 flex items-center p-4 bg-red-100 border border-red-400 text-red-700 rounded-lg">
+                <AlertTriangleIcon className="w-6 h-6 mr-3"/>
+                <span>{imageError}</span>
+            </div>
+          )}
           
-          <div className="space-y-12">
+          <div className="space-y-12 mt-12">
             {!isCallingAI && comparisonResults.length > 0 && (
               <section>
-                <h2 className="text-3xl font-bold text-center mb-6 text-red-700">Análise Comparativa</h2>
+                <h2 className="text-3xl font-bold text-center mb-6 text-red-700">Análise Comparativa do Cardápio</h2>
                 <div className="grid grid-cols-1 md:grid-cols-1 gap-6">
                   {comparisonResults.map((result, index) => (
                     <ComparisonCard key={`comp-${index}`} result={result} />
@@ -333,7 +426,7 @@ const App: React.FC = () => {
 
             {!isCallingAI && spellingCorrections.length > 0 && (
               <section>
-                <h2 className="text-3xl font-bold text-center mb-6 text-red-700">Correções Ortográficas e Gramaticais</h2>
+                <h2 className="text-3xl font-bold text-center mb-6 text-red-700">Correções Ortográficas (Cardápio)</h2>
                 <div className="grid grid-cols-1 md:grid-cols-1 gap-6">
                   {spellingCorrections.map((correction, index) => (
                     <CorrectionCard key={`corr-${index}`} correction={correction} />
@@ -341,10 +434,21 @@ const App: React.FC = () => {
                 </div>
               </section>
             )}
+            
+            {!isCallingAIForImage && imageCorrections.length > 0 && (
+              <section>
+                <h2 className="text-3xl font-bold text-center mb-6 text-red-700">Correções Ortográficas (Arte)</h2>
+                <div className="grid grid-cols-1 md:grid-cols-1 gap-6">
+                  {imageCorrections.map((correction, index) => (
+                    <CorrectionCard key={`img-corr-${index}`} correction={correction} />
+                  ))}
+                </div>
+              </section>
+            )}
 
             {!isCallingAI && improvementSuggestions.length > 0 && (
               <section>
-                <h2 className="text-3xl font-bold text-center mb-6 text-gray-800">Sugestões de Aprimoramento</h2>
+                <h2 className="text-3xl font-bold text-center mb-6 text-gray-800">Sugestões de Aprimoramento (Cardápio)</h2>
                 <div className="grid grid-cols-1 md:grid-cols-1 gap-6">
                   {improvementSuggestions.map((correction, index) => (
                     <CorrectionCard key={`sugg-${index}`} correction={correction} />
@@ -356,10 +460,17 @@ const App: React.FC = () => {
 
 
           {!isCallingAI && hasAnalyzed && corrections.length === 0 && comparisonResults.length === 0 && !error && (
-            <div className="flex flex-col items-center p-8 bg-green-100 border border-green-400 text-green-700 rounded-lg">
+            <div className="mt-6 flex flex-col items-center p-8 bg-green-100 border border-green-400 text-green-700 rounded-lg">
                 <CheckCircleIcon className="w-12 h-12 mb-4"/>
-                <h3 className="text-xl font-bold">Ótimo trabalho!</h3>
-                <p>Não encontramos erros ou discrepâncias no seu cardápio.</p>
+                <h3 className="text-xl font-bold">Ótimo trabalho no cardápio!</h3>
+                <p>Não encontramos erros ou discrepâncias.</p>
+            </div>
+          )}
+          {!isCallingAIForImage && hasAnalyzedImage && imageCorrections.length === 0 && !imageError && (
+             <div className="mt-6 flex flex-col items-center p-8 bg-green-100 border border-green-400 text-green-700 rounded-lg">
+                <CheckCircleIcon className="w-12 h-12 mb-4"/>
+                <h3 className="text-xl font-bold">Arte impecável!</h3>
+                <p>Não encontramos erros na imagem.</p>
             </div>
           )}
         </main>
