@@ -7,11 +7,12 @@ import ComparisonCard from './components/ComparisonCard';
 import Spinner from './components/Spinner';
 import { UploadIcon, CheckCircleIcon, AlertTriangleIcon, DocumentTextIcon } from './components/IconComponents';
 
-// Adiciona mammoth ao escopo global para extração de texto de .docx
+// Adiciona mammoth e xlsx (SheetJS) ao escopo global
 declare global {
   interface Window {
     pdfjsLib: any;
     mammoth: any;
+    XLSX: any;
   }
 }
 const { pdfjsLib } = window;
@@ -59,6 +60,30 @@ const extractTextFromDocx = (file: File): Promise<string> => {
     });
 };
 
+const extractTextFromXlsx = (file: File): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const data = e.target?.result;
+        const workbook = window.XLSX.read(data, { type: 'array' });
+        let fullText = '';
+        workbook.SheetNames.forEach((sheetName: string) => {
+          const worksheet = workbook.Sheets[sheetName];
+          // Converte a planilha para texto, o que é eficaz para a IA processar.
+          const text = window.XLSX.utils.sheet_to_txt(worksheet);
+          fullText += text + '\n\n'; // Adiciona espaço entre as planilhas
+        });
+        resolve(fullText);
+      } catch (err) {
+        reject(new Error("Falha ao processar o arquivo Excel (.xlsx)."));
+      }
+    };
+    reader.onerror = () => reject(new Error("Falha ao ler o arquivo."));
+    reader.readAsArrayBuffer(file);
+  });
+};
+
 
 const App: React.FC = () => {
   // State for PDF
@@ -66,10 +91,10 @@ const App: React.FC = () => {
   const [pdfFileName, setPdfFileName] = useState<string>('');
   const [isProcessingPdf, setIsProcessingPdf] = useState<boolean>(false);
   
-  // State for Word file
-  const [wordFileText, setWordFileText] = useState<string>('');
-  const [wordFileName, setWordFileName] = useState<string>('');
-  const [isProcessingWord, setIsProcessingWord] = useState<boolean>(false);
+  // State for Reference file (Word or Excel)
+  const [referenceFileText, setReferenceFileText] = useState<string>('');
+  const [referenceFileName, setReferenceFileName] = useState<string>('');
+  const [isProcessingReference, setIsProcessingReference] = useState<boolean>(false);
 
   // State for results and errors
   const [corrections, setCorrections] = useState<Correction[]>([]);
@@ -81,8 +106,8 @@ const App: React.FC = () => {
   const resetState = () => {
       setPdfFileText('');
       setPdfFileName('');
-      setWordFileText('');
-      setWordFileName('');
+      setReferenceFileText('');
+      setReferenceFileName('');
       setError(null);
       setCorrections([]);
       setComparisonResults([]);
@@ -121,34 +146,44 @@ const App: React.FC = () => {
     }
   };
 
-  const handleWordFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleReferenceFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
 
-    // Clear previous Word state and comparison results
-    setWordFileText('');
-    setWordFileName('');
+    // Clear previous reference state and comparison results
+    setReferenceFileText('');
+    setReferenceFileName('');
     setComparisonResults([]);
     setError(null);
     setHasAnalyzed(false);
 
-    const validWordTypes = ['application/vnd.openxmlformats-officedocument.wordprocessingml.document'];
-    if (file && validWordTypes.includes(file.type)) {
-      setIsProcessingWord(true);
-      setWordFileName(file.name);
+    if (!file) return;
+
+    const docxType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+    const xlsxType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+
+    if ([docxType, xlsxType].includes(file.type)) {
+      setIsProcessingReference(true);
+      setReferenceFileName(file.name);
       try {
-        const text = await extractTextFromDocx(file);
-         if (text.trim().length === 0) {
-          setError("Não foi possível extrair texto do arquivo Word. O arquivo pode estar vazio.");
+        let text = '';
+        if (file.type === docxType) {
+          text = await extractTextFromDocx(file);
+        } else if (file.type === xlsxType) {
+          text = await extractTextFromXlsx(file);
+        }
+
+        if (text.trim().length === 0) {
+          setError("Não foi possível extrair texto do arquivo de referência. O arquivo pode estar vazio.");
         } else {
-          setWordFileText(text);
+          setReferenceFileText(text);
         }
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Ocorreu um erro ao extrair o texto do Word.");
+        setError(err instanceof Error ? err.message : "Ocorreu um erro ao extrair o texto do arquivo de referência.");
       } finally {
-        setIsProcessingWord(false);
+        setIsProcessingReference(false);
       }
-    } else if (file) {
-      setError('Por favor, selecione um arquivo .docx válido.');
+    } else {
+      setError('Por favor, selecione um arquivo .docx ou .xlsx válido.');
     }
   };
 
@@ -169,9 +204,9 @@ const App: React.FC = () => {
       // Always run correction
       promises.push(correctMenuText(pdfFileText));
       
-      // Run comparison if Word file is also provided
-      if (wordFileText) {
-        promises.push(compareMenuWithReference(pdfFileText, wordFileText));
+      // Run comparison if a reference file is also provided
+      if (referenceFileText) {
+        promises.push(compareMenuWithReference(pdfFileText, referenceFileText));
       }
 
       const results = await Promise.allSettled(promises);
@@ -202,7 +237,7 @@ const App: React.FC = () => {
       setIsCallingAI(false);
       setHasAnalyzed(true);
     }
-  }, [pdfFileText, wordFileText]);
+  }, [pdfFileText, referenceFileText]);
 
   const { spellingCorrections, improvementSuggestions } = useMemo(() => {
     const spelling = corrections.filter(c => c.type === 'correção');
@@ -210,12 +245,12 @@ const App: React.FC = () => {
     return { spellingCorrections: spelling, improvementSuggestions: improvements };
   }, [corrections]);
   
-  const isProcessing = isProcessingPdf || isProcessingWord;
+  const isProcessing = isProcessingPdf || isProcessingReference;
   const canProcess = pdfFileText && !isCallingAI && !isProcessing;
   
   const buttonText = isCallingAI
-    ? (wordFileText ? 'Processando...' : 'Corrigindo...')
-    : (wordFileText ? 'Corrigir e Comparar' : 'Corrigir Cardápio');
+    ? (referenceFileText ? 'Processando...' : 'Corrigindo...')
+    : (referenceFileText ? 'Corrigir e Comparar' : 'Corrigir Cardápio');
 
 
   return (
@@ -242,18 +277,18 @@ const App: React.FC = () => {
                     <input id="pdf-upload" type="file" className="hidden" accept="application/pdf" onChange={handlePdfFileChange} disabled={isProcessing}/>
                 </label>
 
-                {/* Word Upload */}
-                <label htmlFor="word-upload" className="w-full flex flex-col items-center px-6 py-12 bg-white text-gray-700 rounded-lg shadow-lg tracking-wide border-2 border-dashed border-gray-300 cursor-pointer hover:bg-gray-100 hover:border-black transition-all duration-300">
+                {/* Reference File Upload */}
+                <label htmlFor="reference-upload" className="w-full flex flex-col items-center px-6 py-12 bg-white text-gray-700 rounded-lg shadow-lg tracking-wide border-2 border-dashed border-gray-300 cursor-pointer hover:bg-gray-100 hover:border-black transition-all duration-300">
                     <DocumentTextIcon className="w-12 h-12 mb-3" />
-                    <span className="mt-2 text-base leading-normal font-semibold text-center">2. Ficha/Referência (.docx)</span>
+                    <span className="mt-2 text-base leading-normal font-semibold text-center">2. Ficha/Referência (.docx, .xlsx)</span>
                     <span className="text-xs text-gray-500">(Opcional para Comparação)</span>
-                    <input id="word-upload" type="file" className="hidden" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" onChange={handleWordFileChange} disabled={isProcessing}/>
+                    <input id="reference-upload" type="file" className="hidden" accept=".docx,.xlsx,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={handleReferenceFileChange} disabled={isProcessing}/>
                 </label>
             </div>
 
             <div className="mt-6 space-y-3">
                  {pdfFileName && <p className="text-center text-gray-700">Cardápio: <span className="font-semibold text-red-700">{pdfFileName}</span></p>}
-                 {wordFileName && <p className="text-center text-gray-700">Referência: <span className="font-semibold text-black">{wordFileName}</span></p>}
+                 {referenceFileName && <p className="text-center text-gray-700">Referência: <span className="font-semibold text-black">{referenceFileName}</span></p>}
             </div>
 
             {isProcessing && (
